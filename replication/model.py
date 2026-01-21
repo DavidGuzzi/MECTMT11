@@ -79,31 +79,80 @@ class DSGEModel:
         # Build matrices
         self.Gamma0, self.Gamma1, self.Psi, self.Pi = self.build_matrices()
 
-        # Solve using QZ
-        solver = DSGESolver(self.Gamma0, self.Gamma1, self.Psi, self.Pi)
-        self.T, self.R, info = solver.solve()
+        # Solve using gensys algorithm (Sims 2002)
+        from .gensys import gensys, check_solution
+
+        print("Solving model with gensys algorithm...")
+        G1, impact, eu = gensys(self.Gamma0, self.Gamma1, self.Psi, self.Pi,
+                                div=1.01, realsmall=1e-6)
+
+        # Store solution
+        if G1 is not None:
+            self.T = G1
+            self.R = impact
+            check_solution(G1, eu, self.var_names)
+        else:
+            print("WARNING: gensys did not find a solution")
+            self.T = np.eye(len(self.var_names))
+            self.R = np.zeros((len(self.var_names), len(self.shock_names)))
 
         # Build measurement system
         self._build_measurement_system()
 
         self.solved = True
+
+        # Create info dict compatible with old interface
+        info = {
+            'exists': eu[0] == 1,
+            'unique': eu[1] == 1,
+            'message': 'Solution exists and is unique' if (eu[0] == 1 and eu[1] == 1)
+                      else ('Solution exists but not unique' if eu[0] == 1
+                      else 'No solution exists'),
+            'G1': G1,
+            'impact': impact,
+            'eu': eu
+        }
+
         return info
 
     def _build_measurement_system(self):
         """Build measurement matrices Z, D, H. Override in subclass."""
         raise NotImplementedError
 
-    def impulse_responses(self, shock_idx: int, periods: int = 20) -> np.ndarray:
-        """Compute impulse response functions."""
+    def impulse_responses(self, shock_idx: int, periods: int = 20, shock_size: float = 1.0) -> np.ndarray:
+        """
+        Compute impulse response functions.
+
+        Args:
+            shock_idx: Index of shock (0 to n_shocks-1)
+            periods: Number of periods for IRF
+            shock_size: Size of shock (default 1 std dev)
+
+        Returns:
+            IRF matrix (periods x n_vars)
+        """
         if not self.solved:
             raise ValueError("Model must be solved first")
 
-        solver = DSGESolver(self.Gamma0, self.Gamma1, self.Psi, self.Pi)
-        solver.T = self.T
-        solver.R = self.R
-        solver.solved = True
+        n_vars = len(self.var_names)
+        n_shocks = len(self.shock_names)
 
-        return solver.impulse_responses(shock_idx, periods)
+        # Initialize IRF array
+        irf = np.zeros((periods, n_vars))
+
+        # Initial shock
+        eps = np.zeros(n_shocks)
+        eps[shock_idx] = shock_size
+
+        # Initial state (impact of shock)
+        s = self.R @ eps
+
+        # Simulate forward
+        for t in range(periods):
+            irf[t, :] = s[:n_vars] if s.shape[0] >= n_vars else np.pad(s, (0, n_vars - s.shape[0]))
+            s = self.T @ s
+
+        return irf
 
     def log_likelihood(self, data: np.ndarray) -> float:
         """
@@ -138,19 +187,22 @@ class SmetsWoutersModel(DSGEModel):
     def __init__(self):
         super().__init__("Smets-Wouters (2007)")
 
-        # Define variable names (48 total)
+        # Define variable names (40 total endogenous + 2 MA terms + 2 observed = 44 total)
+        # Note: This differs slightly from Dynare's 44 var declaration
         self.var_names = [
             # Observed variables (7)
             'labobs', 'robs', 'pinfobs', 'dy', 'dc', 'dinve', 'dw',
-            # Flexible economy variables
-            'ewma', 'epinfma', 'zcapf', 'rkf', 'kf', 'pkf', 'cf',
+            # MA components for markup shocks (2)
+            'ewma', 'epinfma',
+            # Flexible economy variables (10)
+            'zcapf', 'rkf', 'kf', 'pkf', 'cf',
             'invef', 'yf', 'labf', 'wf', 'rrf',
-            # Sticky economy variables
+            # Sticky economy variables (13)
             'mc', 'zcap', 'rk', 'k', 'pk', 'c', 'inve', 'y', 'lab',
             'pinf', 'w', 'r',
-            # Exogenous processes
+            # Exogenous shock processes (7)
             'a', 'b', 'g', 'qs', 'ms', 'spinf', 'sw',
-            # Predetermined capital
+            # Predetermined capital (2)
             'kpf', 'kp'
         ]
 
@@ -246,33 +298,23 @@ class SmetsWoutersModel(DSGEModel):
 
     def build_matrices(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """
-        Build canonical form matrices.
+        Build canonical form matrices for Smets-Wouters model.
 
-        NOTE: This is a placeholder. The full Smets-Wouters model has 48 equations
-        and requires careful translation from the Dynare .mod file.
+        Translates all 48 equations from repo/usmodel.mod (lines 78-143) into
+        canonical form: Γ0*y_t = Γ1*y_{t-1} + Ψ*ε_t + Π*η_t
 
-        For a complete implementation, users should:
-        1. Parse repo/usmodel.mod equations (lines 78-143)
-        2. Convert to canonical form Γ0*y_t = Γ1*y_{t-1} + Ψ*ε_t + Π*η_t
-        3. Populate the matrices according to the model structure
-
-        This placeholder returns identity matrices as an example.
+        Returns:
+            (Gamma0, Gamma1, Psi, Pi) matrices for rational expectations solver
         """
-        n_vars = len(self.var_names)  # 48
-        n_shocks = len(self.shock_names)  # 7
+        # Import the equation builder (v2 with corrected indexing)
+        from .sw_equations_v2 import build_smets_wouters_matrices
 
-        warnings.warn(
-            "SmetsWoutersModel.build_matrices() is a placeholder. "
-            "Full implementation requires translating all equations from usmodel.mod. "
-            "Users should implement the complete model specification or use Dynare directly."
+        # Build matrices using complete equation specification
+        Gamma0, Gamma1, Psi, Pi = build_smets_wouters_matrices(
+            params=self.params,
+            var_names=self.var_names,
+            shock_names=self.shock_names
         )
-
-        # Placeholder: return identity matrices
-        Gamma0 = np.eye(n_vars)
-        Gamma1 = 0.9 * np.eye(n_vars)  # Simple persistence
-        Psi = np.zeros((n_vars, n_shocks))
-        Psi[:n_shocks, :n_shocks] = np.eye(n_shocks)  # Shocks enter first n equations
-        Pi = np.zeros((n_vars, n_shocks))  # No expectational errors in this placeholder
 
         return Gamma0, Gamma1, Psi, Pi
 

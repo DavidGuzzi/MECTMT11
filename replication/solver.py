@@ -76,8 +76,8 @@ class DSGESolver:
         if not info['unique']:
             warnings.warn(f"Solution conditions not satisfied: {info['message']}")
 
-        # Step 3: Construct solution matrices
-        self.T, self.R = self._build_solution(AA, BB, Q, Z)
+        # Step 3: Construct solution matrices (pass sdim from QZ)
+        self.T, self.R = self._build_solution(AA, BB, Q, Z, sdim)
         self.solved = True
 
         return self.T, self.R, info
@@ -166,7 +166,7 @@ class DSGESolver:
         }
 
     def _build_solution(self, AA: np.ndarray, BB: np.ndarray,
-                       Q: np.ndarray, Z: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+                       Q: np.ndarray, Z: np.ndarray, n_stable: int) -> Tuple[np.ndarray, np.ndarray]:
         """
         Construct solution matrices T and R.
 
@@ -176,13 +176,14 @@ class DSGESolver:
         Args:
             AA, BB: Upper triangular matrices from QZ
             Q, Z: Orthogonal transformation matrices
+            n_stable: Actual number of stable eigenvalues from QZ
 
         Returns:
             T: Transition matrix
             R: Shock impact matrix
         """
-        # Number of stable eigenvalues
-        n_stable = self.n - self.n_eta
+        # Use actual stable count from QZ decomposition
+        # n_stable is passed as parameter
 
         # Partition Z matrix
         Z11 = Z[:n_stable, :n_stable]
