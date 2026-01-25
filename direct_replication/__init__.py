@@ -17,7 +17,7 @@ from .sims_bvar_interface import SimsBVAR
 from .results_extractor import (
     extract_state_space_matrices,
     extract_parameter_estimates,
-    convert_dr_ordering
+    convert_dr_ordering_to_declaration as convert_dr_ordering
 )
 from .verification import ReplicationVerification
 

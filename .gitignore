@@ -1,1 +1,4 @@
 *.pdf
+/direct_replication/__pycache__
+direct_replication/notebooks/usmodel.log
+nul
