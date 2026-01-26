@@ -62,7 +62,8 @@ class SimsBVAR:
 
     def mgnldnsty(self, ydata: np.ndarray, lags: int,
                   train: int = 40, flat: int = 0,
-                  lambda_val: float = 5.0, mu_val: float = 1.0) -> float:
+                  lambda_val: float = 5.0, mu_val: float = 2.0,
+                  tau: float = 10.0, d: float = 1.0) -> float:
         """
         Compute marginal log density for BVAR model.
 
@@ -71,8 +72,10 @@ class SimsBVAR:
             lags: Number of lags
             train: Number of observations for training sample (default: 40)
             flat: Use flat prior if > 0 (default: 0)
-            lambda_val: Minnesota prior tightness (default: 5.0)
-            mu_val: Minnesota prior co-persistence (default: 1.0)
+            lambda_val: Weight on co-persistence prior (default: 5.0)
+            mu_val: Weight on own-persistence prior (default: 2.0)
+            tau: Minnesota prior overall tightness (default: 10.0)
+            d: Lag decay parameter (default: 1.0)
 
         Returns:
             Marginal log density (scalar)
@@ -91,7 +94,7 @@ class SimsBVAR:
         xdata = [];
         breaks = [];
 
-        % Setup Minnesota prior
+        % Setup prior weights for rfvar3
         if {flat} > 0
             lambda = Inf;
             mu = 0;
@@ -100,23 +103,65 @@ class SimsBVAR:
             mu = {mu_val};
         end
 
-        % Get prior
-        [Tsig, Tphi, Tcnst, Tdf] = varprior(nv, {lags}, lambda, mu, {train});
+        % Compute prior variance from training sample
+        if {train} > 0
+            % Use AR(1) on training sample
+            y_train = ydata(1:{train}, :);
+            y_train_lag = y_train(1:end-1, :);
+            y_train_dep = y_train(2:end, :);
 
-        % Estimate VAR
-        [w, xxi, logdetxy] = rfvar3([ydata xdata], {lags}, [Tsig Tphi Tcnst Tdf], breaks);
+            % OLS regression
+            coef = (y_train_lag' * y_train_lag) \\ (y_train_lag' * y_train_dep);
+            resid = y_train_dep - y_train_lag * coef;
+            sig_prior = sqrt(diag(resid' * resid / ({train}-1)));
+        else
+            % Use sample std dev if no training sample
+            sig_prior = std(ydata)';
+        end
 
-        % Compute marginal likelihood
-        % Formula from Sims (1998) and Smets-Wouters (2007)
-        nobs = T - {train} - {lags};
-        ncoef = nv * {lags} + 1;
+        % Create Minnesota and variance prior structures
+        if {flat} > 0
+            mnprior = [];
+            vprior = [];
+        else
+            % Minnesota prior parameters
+            mnprior.tight = {tau};
+            mnprior.decay = {d};
 
-        % Log marginal density
-        mgnl = -nobs * nv * 0.5 * log(2 * pi);
-        mgnl = mgnl + 0.5 * logdetxy;
-        mgnl = mgnl - nobs * nv * 0.5 * log(nobs);
+            % Variance prior parameters
+            vprior.sig = sig_prior';
+            vprior.w = 1;
+        end
 
-        marginal_loglik = mgnl;
+        % Call varprior with correct signature
+        nx = 0;  % No exogenous variables
+        [ydum, xdum, pbreaks] = varprior(nv, nx, {lags}, mnprior, vprior);
+
+        % Estimate VAR with dummy observations as prior
+        var = rfvar3([ydata; ydum], {lags}, [xdata; xdum], [breaks; T; T + pbreaks], lambda, mu);
+
+        % Extract results from var structure
+        u = var.u;
+        xxi = var.xxi;
+        Tu = size(u, 1);
+
+        % Compute marginal likelihood using matrictint
+        loglik_full = matrictint(u' * u, xxi, Tu - {flat} * (nv + 1)) - {flat} * 0.5 * nv * (nv + 1) * log(2 * pi);
+
+        % If training sample used, compute training likelihood and subtract
+        if {train} > 0
+            % Estimate on training sample only
+            var_train = rfvar3([ydata(1:{train}, :); ydum], {lags}, [xdata; xdum], [breaks; {train}; {train} + pbreaks], lambda, mu);
+            u_train = var_train.u;
+            Tu_train = size(u_train, 1);
+
+            loglik_train = matrictint(u_train' * u_train, var_train.xxi, Tu_train - {flat} * (nv + 1) / 2) - {flat} * 0.5 * nv * (nv + 1) * log(2 * pi);
+
+            % Marginal likelihood is difference
+            marginal_loglik = loglik_full - loglik_train;
+        else
+            marginal_loglik = loglik_full;
+        end
         """
 
         try:
@@ -128,7 +173,9 @@ class SimsBVAR:
 
     def mgnldnsty_fcast(self, ydata: np.ndarray, lags: int,
                        start_for: int, horizon: int,
-                       train: int = 40, flat: int = 0) -> Tuple[np.ndarray, np.ndarray]:
+                       train: int = 40, flat: int = 0,
+                       lambda_val: float = 5.0, mu_val: float = 2.0,
+                       tau: float = 10.0, d: float = 1.0) -> Tuple[np.ndarray, np.ndarray]:
         """
         Compute BVAR forecasts and forecast errors.
 
@@ -139,6 +186,10 @@ class SimsBVAR:
             horizon: Forecast horizon
             train: Number of observations for training sample (default: 40)
             flat: Use flat prior if > 0 (default: 0)
+            lambda_val: Weight on co-persistence prior (default: 5.0)
+            mu_val: Weight on own-persistence prior (default: 2.0)
+            tau: Minnesota prior overall tightness (default: 10.0)
+            d: Lag decay parameter (default: 1.0)
 
         Returns:
             Tuple of:
@@ -163,6 +214,37 @@ class SimsBVAR:
         forecasts = zeros(n_fperiods, nv, {horizon});
         errors = zeros(n_fperiods, nv, {horizon});
 
+        % Compute prior variance from training sample (once)
+        if {train} > 0
+            y_train = ydata(1:{train}, :);
+            y_train_lag = y_train(1:end-1, :);
+            y_train_dep = y_train(2:end, :);
+            coef = (y_train_lag' * y_train_lag) \\ (y_train_lag' * y_train_dep);
+            resid = y_train_dep - y_train_lag * coef;
+            sig_prior = sqrt(diag(resid' * resid / ({train}-1)));
+        else
+            sig_prior = std(ydata)';
+        end
+
+        % Create prior structures
+        if {flat} > 0
+            mnprior = [];
+            vprior = [];
+            lambda = Inf;
+            mu = 0;
+        else
+            mnprior.tight = {tau};
+            mnprior.decay = {d};
+            vprior.sig = sig_prior';
+            vprior.w = 1;
+            lambda = {lambda_val};
+            mu = {mu_val};
+        end
+
+        % Get dummy observations (same for all forecasts)
+        nx = 0;
+        [ydum, xdum, pbreaks] = varprior(nv, nx, {lags}, mnprior, vprior);
+
         % Recursive forecasting loop
         for i_for = 1:n_fperiods
             t_for = {start_for} + i_for - 1;
@@ -170,44 +252,40 @@ class SimsBVAR:
             % Estimate VAR up to t_for - 1
             y_est = ydata(1:t_for-1, :);
 
-            % Get prior
-            if {flat} > 0
-                lambda = Inf;
-                mu = 0;
-            else
-                lambda = 5.0;
-                mu = 1.0;
-            end
+            % Estimate VAR with dummy observations
+            var = rfvar3([y_est; ydum], {lags}, [xdata; xdum], [breaks; t_for - 1; t_for - 1 + pbreaks], lambda, mu);
 
-            [Tsig, Tphi, Tcnst, Tdf] = varprior(nv, {lags}, lambda, mu, {train});
+            % Extract coefficients from var structure
+            By = var.By;  % Shape: (equations, variables, lags)
 
-            % Estimate VAR
-            [w, xxi, logdetxy] = rfvar3([y_est xdata], {lags}, [Tsig Tphi Tcnst Tdf], breaks);
-
-            % Generate forecast
-            % w contains VAR coefficients
-            % Last {lags} observations as initial conditions
-            y_init = y_est(end-{lags}+1:end, :);
+            % Generate forecasts
+            y_init = y_est(end - {lags} + 1:end, :);
 
             % Forecast loop
             for h = 1:{horizon}
+                % Build lagged variables vector
                 if h == 1
-                    y_lag = flipud(y_init);
+                    y_lags = flipud(y_init);  % Most recent first
                 else
-                    y_lag = [forecasts(i_for, :, h-1); y_lag(1:end-1, :)];
+                    % Use previous forecasts
+                    y_lags = [forecasts(i_for, :, h-1); y_lags(1:end-1, :)];
                 end
 
-                % Forecast: y_t = c + B1*y_{t-1} + ... + Bp*y_{t-p}
-                y_fcast = w(1, :)';  % constant
-                for p = 1:{lags}
-                    y_fcast = y_fcast + w(1 + (p-1)*nv + 1 : 1 + p*nv, :)' * y_lag(p, :)';
+                % Forecast using By coefficients: By(eq, var, lag)
+                y_fcast = zeros(1, nv);
+                for eq = 1:nv
+                    for lag = 1:{lags}
+                        for var = 1:nv
+                            y_fcast(eq) = y_fcast(eq) + By(eq, var, lag) * y_lags(lag, var);
+                        end
+                    end
                 end
 
                 forecasts(i_for, :, h) = y_fcast;
 
                 % Compute error if data available
                 if t_for + h <= T
-                    errors(i_for, :, h) = ydata(t_for + h, :)' - y_fcast;
+                    errors(i_for, :, h) = ydata(t_for + h, :) - y_fcast;
                 else
                     errors(i_for, :, h) = NaN;
                 end
@@ -224,7 +302,9 @@ class SimsBVAR:
             raise RuntimeError(f"Error computing forecasts: {e}")
 
     def estimate_bvar(self, ydata: np.ndarray, lags: int,
-                     train: int = 40, flat: int = 0) -> Dict:
+                     train: int = 40, flat: int = 0,
+                     lambda_val: float = 5.0, mu_val: float = 2.0,
+                     tau: float = 10.0, d: float = 1.0) -> Dict:
         """
         Estimate BVAR model and return coefficients and statistics.
 
@@ -233,6 +313,10 @@ class SimsBVAR:
             lags: Number of lags
             train: Number of observations for training sample (default: 40)
             flat: Use flat prior if > 0 (default: 0)
+            lambda_val: Weight on co-persistence prior (default: 5.0)
+            mu_val: Weight on own-persistence prior (default: 2.0)
+            tau: Minnesota prior overall tightness (default: 10.0)
+            d: Lag decay parameter (default: 1.0)
 
         Returns:
             Dictionary with:
@@ -251,19 +335,52 @@ class SimsBVAR:
         xdata = [];
         breaks = [];
 
-        % Prior
+        % Compute prior variance from training sample
+        if {train} > 0
+            y_train = ydata(1:{train}, :);
+            y_train_lag = y_train(1:end-1, :);
+            y_train_dep = y_train(2:end, :);
+            coef = (y_train_lag' * y_train_lag) \\ (y_train_lag' * y_train_dep);
+            resid = y_train_dep - y_train_lag * coef;
+            sig_prior = sqrt(diag(resid' * resid / ({train}-1)));
+        else
+            sig_prior = std(ydata)';
+        end
+
+        % Create prior structures
         if {flat} > 0
+            mnprior = [];
+            vprior = [];
             lambda = Inf;
             mu = 0;
         else
-            lambda = 5.0;
-            mu = 1.0;
+            mnprior.tight = {tau};
+            mnprior.decay = {d};
+            vprior.sig = sig_prior';
+            vprior.w = 1;
+            lambda = {lambda_val};
+            mu = {mu_val};
         end
 
-        [Tsig, Tphi, Tcnst, Tdf] = varprior(nv, {lags}, lambda, mu, {train});
+        % Get dummy observations
+        nx = 0;
+        [ydum, xdum, pbreaks] = varprior(nv, nx, {lags}, mnprior, vprior);
 
-        % Estimate
-        [w, xxi, logdetxy] = rfvar3([ydata xdata], {lags}, [Tsig Tphi Tcnst Tdf], breaks);
+        % Estimate VAR with dummy observations
+        var = rfvar3([ydata; ydum], {lags}, [xdata; xdum], [breaks; T; T + pbreaks], lambda, mu);
+
+        % Extract results from var structure
+        By = var.By;    % Coefficients: (equations, variables, lags)
+        u = var.u;      % Residuals
+        xxi = var.xxi;  % (X'X)^(-1)
+
+        % Reshape By for output (equations, variables*lags)
+        w_reshaped = zeros(nv, nv * {lags});
+        for eq = 1:nv
+            for lag = 1:{lags}
+                w_reshaped(eq, (lag-1)*nv+1:lag*nv) = By(eq, :, lag);
+            end
+        end
 
         % Compute fitted values and residuals
         y_est = ydata({train}+{lags}+1:end, :);
@@ -276,7 +393,8 @@ class SimsBVAR:
             for p = 1:{lags}
                 y_lag = [y_lag; ydata(t_data - p, :)'];
             end
-            y_fit(t, :) = (w(1, :)' + w(2:end, :)' * y_lag)';
+            % Use w_reshaped for predictions
+            y_fit(t, :) = (w_reshaped * y_lag)';
         end
 
         residuals = y_est - y_fit;
@@ -287,11 +405,19 @@ class SimsBVAR:
         loglik = loglik - 0.5 * T_est * log(det(sigma));
         loglik = loglik - 0.5 * trace(residuals * inv(sigma) * residuals');
 
-        % Marginal log-likelihood
-        nobs = T - {train} - {lags};
-        mgnl = -nobs * nv * 0.5 * log(2 * pi);
-        mgnl = mgnl + 0.5 * logdetxy;
-        marginal_loglik = mgnl;
+        % Compute marginal log-likelihood using matrictint
+        Tu = size(u, 1);
+        loglik_full = matrictint(u' * u, xxi, Tu - {flat} * (nv + 1)) - {flat} * 0.5 * nv * (nv + 1) * log(2 * pi);
+
+        if {train} > 0
+            var_train = rfvar3([ydata(1:{train}, :); ydum], {lags}, [xdata; xdum], [breaks; {train}; {train} + pbreaks], lambda, mu);
+            u_train = var_train.u;
+            Tu_train = size(u_train, 1);
+            loglik_train = matrictint(u_train' * u_train, var_train.xxi, Tu_train - {flat} * (nv + 1) / 2) - {flat} * 0.5 * nv * (nv + 1) * log(2 * pi);
+            marginal_loglik = loglik_full - loglik_train;
+        else
+            marginal_loglik = loglik_full;
+        end
         """
 
         try:
