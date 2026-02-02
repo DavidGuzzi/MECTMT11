@@ -3,3 +3,8 @@
 direct_replication/notebooks/usmodel.log
 nul
 /direct_replication/model
+/DG/model/+argmodel
+/DG/model/argmodel
+DG/data/argmodel_data.mat
+/DG/src/__pycache__
+DG/model/argmodel.log

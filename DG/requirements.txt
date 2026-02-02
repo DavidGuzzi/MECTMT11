@@ -1,0 +1,20 @@
+# Argentina DSGE Replication Dependencies
+# Install with: pip install -r requirements.txt
+
+# Core Python-Octave bridge
+oct2py>=5.6.0
+
+# Numerical computing
+numpy>=1.24.0
+scipy>=1.10.0
+pandas>=2.0.0
+
+# Plotting
+matplotlib>=3.7.0
+
+# Excel file reading
+openpyxl>=3.1.0
+
+# Jupyter notebook
+jupyter>=1.0.0
+ipywidgets>=8.0.0
