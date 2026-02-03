@@ -216,7 +216,7 @@ varobs dy dc dinve labobs pinfobs dw robs;
 %   - presample=4: 4 trimestres de presample
 %   - mh_replic=10000: MCMC para intervalos de confianza
 
-estimation(optim=('MaxIter',200),datafile=../data/argmodel_data,mode_compute=4,first_obs=1,presample=4,lik_init=2,prefilter=0,mh_replic=0,mh_nblocks=2,mh_jscale=0.20,mh_drop=0.2,nodiagnostic);
+estimation(optim=('MaxIter',200),datafile=argmodel_data,mode_compute=4,first_obs=1,presample=4,lik_init=2,prefilter=0,mh_replic=0,mh_nblocks=2,mh_jscale=0.20,mh_drop=0.2,nodiagnostic);
 
 % Generate IRFs and Moments of output, inflation and interest rate
 stoch_simul(irf=20) dy pinfobs robs ;

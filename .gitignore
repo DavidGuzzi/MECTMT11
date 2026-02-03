@@ -8,3 +8,10 @@ nul
 DG/data/argmodel_data.mat
 /DG/src/__pycache__
 DG/model/argmodel.log
+/DG/model/+argmodel_figures
+/DG/model/argmodel_figures
+DG/data/Arg.xlsx
+DG/model/argmodel_data.mat
+DG/model/argmodel_mode.mat
+DG/model/argmodel_figures.log
+DG/model/argmodel.mod
