@@ -15,3 +15,7 @@ DG/model/argmodel_data.mat
 DG/model/argmodel_mode.mat
 DG/model/argmodel_figures.log
 DG/model/argmodel.mod
+direct_replication/notebooks/figure4_gdp_annual_decomposition.csv
+direct_replication/notebooks/figure4_historical_decomposition.png
+direct_replication/notebooks/figure4_inflation_annual_decomposition.csv
+direct_replication/notebooks/figure4_quarterly_decomposition.csv
