@@ -80,6 +80,8 @@ constelab=0;
 
 model(linear);
 
+#argmodel_stst;
+
 % flexible economy
 
 	      0*(1-calfa)*a + 1*a =  calfa*rkf+(1-calfa)*(wf)  ;
