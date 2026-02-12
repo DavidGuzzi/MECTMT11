@@ -29,3 +29,5 @@ DG/overleaf_upload.zip
 DG/references.bib
 direct_replication/notebooks/figure_4_mcmc_comparison.ipynb
 direct_replication/notebooks/figure_4_replication.ipynb
+/DG/model/+argmodel_mcmc
+/DG/model/argmodel_mcmc

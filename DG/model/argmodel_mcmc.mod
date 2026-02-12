@@ -249,7 +249,7 @@ varobs dy dc dinve labobs pinfobs dw robs;
 % ESTIMACION MCMC PARA ARGENTINA
 % =============================================================================
 % Prueba MCMC con 5000 replicas por cadena (2 cadenas = 10000 draws total)
-% Carga posterior mode pre-computado (mode_compute=0) para arrancar directo
-% Diagnosticos de convergencia habilitados (sin nodiagnostic)
+% mode_compute=4 con mode_file: re-optimiza desde el mode existente y
+% recomputa la Hessiana (necesaria para inicializar el sampler MCMC)
 
-estimation(optim=('MaxIter',200),datafile=argmodel_data,mode_compute=0,mode_file=argmodel_mode,first_obs=1,presample=4,lik_init=2,prefilter=0,mh_replic=5000,mh_nblocks=2,mh_jscale=0.20,mh_drop=0.2);
+estimation(optim=('MaxIter',200),datafile=argmodel_data,mode_compute=4,mode_file=argmodel_mode,first_obs=1,presample=4,lik_init=2,prefilter=0,mh_replic=5000,mh_nblocks=2,mh_jscale=0.20,mh_drop=0.2);
