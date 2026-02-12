@@ -1,5 +1,6 @@
 % =============================================================================
-% ARGMODEL.MOD - Modelo DSGE Smets & Wouters para Argentina
+% ARGMODEL_MCMC.MOD - Modelo DSGE Smets & Wouters para Argentina
+% Variante MCMC: carga posterior mode existente y corre Metropolis-Hastings
 % Adaptado del modelo original US (usmodel.mod)
 % Periodo: 2004Q2 - 2025Q3 (86 observaciones)
 % =============================================================================
@@ -245,16 +246,10 @@ end;
 varobs dy dc dinve labobs pinfobs dw robs;
 
 % =============================================================================
-% ESTIMACION PARA ARGENTINA
+% ESTIMACION MCMC PARA ARGENTINA
 % =============================================================================
-% Cambios respecto a US:
-%   - datafile: argmodel_data (datos de Argentina)
-%   - mode_compute=4: Buscar posterior mode (primera estimacion)
-%   - first_obs=1: Usar todas las observaciones disponibles
-%   - presample=4: 4 trimestres de presample
-%   - mh_replic=10000: MCMC para intervalos de confianza
+% Prueba MCMC con 5000 replicas por cadena (2 cadenas = 10000 draws total)
+% Carga posterior mode pre-computado (mode_compute=0) para arrancar directo
+% Diagnosticos de convergencia habilitados (sin nodiagnostic)
 
-estimation(optim=('MaxIter',200),datafile=argmodel_data,mode_compute=4,first_obs=1,presample=4,lik_init=2,prefilter=0,mh_replic=0,mh_nblocks=2,mh_jscale=0.20,mh_drop=0.2,nodiagnostic);
-
-% Generate IRFs and Moments of output, inflation and interest rate
-stoch_simul(irf=20) dy pinfobs robs ;
+estimation(optim=('MaxIter',200),datafile=argmodel_data,mode_compute=0,mode_file=argmodel_mode,first_obs=1,presample=4,lik_init=2,prefilter=0,mh_replic=5000,mh_nblocks=2,mh_jscale=0.20,mh_drop=0.2);

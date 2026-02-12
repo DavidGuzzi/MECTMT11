@@ -78,9 +78,45 @@ conster=(cr-1)*100;
 constepinf=(cpie-1)*100;
 constelab=0;
 
-model(linear);
+% =============================================================================
+% Recomputar parametros derivados durante la estimacion
+% (equivalente a usmodel_stst.m del repo original, adaptado a Dynare 6.5)
+% =============================================================================
+steady_state_model;
+  % Recomputar parametros derivados desde parametros estimados
+  cpie=1+constepinf/100;
+  cgamma=1+ctrend/100;
+  cbeta=1/(1+constebeta/100);
 
-#argmodel_stst;
+  clandap=cfc;
+  cbetabar=cbeta*cgamma^(-csigma);
+  cr=cpie/(cbeta*cgamma^(-csigma));
+  crk=(cbeta^(-1))*(cgamma^csigma) - (1-ctou);
+  cw = (calfa^calfa*(1-calfa)^(1-calfa)/(clandap*crk^calfa))^(1/(1-calfa));
+  cikbar=(1-(1-ctou)/cgamma);
+  cik=(1-(1-ctou)/cgamma)*cgamma;
+  clk=((1-calfa)/calfa)*(crk/cw);
+  cky=cfc*(clk)^(calfa-1);
+  ciy=cik*cky;
+  ccy=1-cg-cik*cky;
+  crkky=crk*cky;
+  cwhlc=(1/clandaw)*(1-calfa)/calfa*crk*cky/ccy;
+  cwly=1-crk*cky;
+
+  conster=(cr-1)*100;
+
+  % Steady state de variables endogenas
+  % Variables del modelo (desviaciones): cero
+  ewma=0; epinfma=0;
+  zcapf=0; rkf=0; kf=0; pkf=0; cf=0; invef=0; yf=0; labf=0; wf=0; rrf=0;
+  mc=0; zcap=0; rk=0; k=0; pk=0; c=0; inve=0; y=0; lab=0;
+  pinf=0; w=0; r=0; a=0; b=0; g=0; qs=0; ms=0; spinf=0; sw=0; kpf=0; kp=0;
+  % Variables de medicion: incluyen constantes del steady state
+  dy=ctrend; dc=ctrend; dinve=ctrend; dw=ctrend;
+  pinfobs=constepinf; robs=conster; labobs=constelab;
+end;
+
+model(linear);
 
 % flexible economy
 
